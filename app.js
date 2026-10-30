@@ -243,14 +243,13 @@ function authHtml(){
    (m==='up'?'<label>Nome que aparece nas obras<input type="text" id="a-name" maxlength="40" autocomplete="nickname"></label>':'')+
    '<label>E-mail<input type="email" id="a-email" autocomplete="email"></label>'+
    (m==='forgot'?'':'<label>Senha<input type="password" id="a-pass" autocomplete="'+(m==='up'?'new-password':'current-password')+'" minlength="6"></label>')+
-   (m==='up'?'<label>Código de convite <span class="hint muted" style="font-weight:400">Se quem criou a estante te passou um.</span><input type="text" id="a-invite" autocomplete="off"></label>':'')+
    '<div class="err" id="a-err" role="alert"></div><div class="ok" id="a-ok" role="status">'+esc(S.authMsg)+'</div>'+
    '<button class="btn pri" type="submit" id="a-go">'+(m==='in'?'Entrar':m==='up'?'Criar conta':'Enviar link por e-mail')+'</button>'+
    (m==='in'?'<button type="button" class="btn sm" data-action="authmode" data-m="forgot" style="align-self:flex-start">Esqueci a senha</button>':'')+
    (m==='forgot'?'<button type="button" class="btn sm" data-action="authmode" data-m="in" style="align-self:flex-start">Voltar</button>':'')+
    '</form></div>';
 }
-const AERR=[['Invalid login credentials','E-mail ou senha incorretos.'],['Email not confirmed','Confirme seu e-mail antes de entrar. Procure o link na caixa de entrada.'],['already registered','Este e-mail já tem conta. Use "Entrar".'],['at least','A senha precisa ter pelo menos 6 caracteres.'],['Database error','Não foi possível criar a conta. Confira o código de convite.'],['rate limit','Muitas tentativas. Espere um pouco e tente de novo.'],['valid email','Digite um e-mail válido.']];
+const AERR=[['Invalid login credentials','E-mail ou senha incorretos.'],['Email not confirmed','Confirme seu e-mail antes de entrar. Procure o link na caixa de entrada.'],['already registered','Este e-mail já tem conta. Use "Entrar".'],['at least','A senha precisa ter pelo menos 6 caracteres.'],['Database error','Não foi possível criar a conta.'],['rate limit','Muitas tentativas. Espere um pouco e tente de novo.'],['valid email','Digite um e-mail válido.']];
 const aerr=e=>{const m=(e&&e.message)||'';const h=AERR.find(x=>m.indexOf(x[0])>=0);return h?h[1]:'Algo deu errado: '+m};
 async function doAuth(){
   const m=S.authMode,err=document.getElementById('a-err'),ok=document.getElementById('a-ok'),btn=document.getElementById('a-go');
