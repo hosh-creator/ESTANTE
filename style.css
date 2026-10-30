@@ -143,3 +143,14 @@ footer{max-width:1080px;margin:40px auto 0;color:var(--ink2);font-size:12.5px}
 .ic{display:inline-flex;align-items:center;gap:5px}
 .stats .ic svg,.meta .ic svg{flex:none}
 .side label.notify{flex-direction:row;align-items:flex-start;gap:8px;font-weight:400;font-size:13px}
+.dl{margin-top:14px;gap:8px}
+#printroot{display:none}
+@media print{
+  html,body{background:#fff!important;color:#000!important;padding:0!important;min-height:0!important}
+  body>#app{display:none!important}
+  #printroot{display:block;color:#000;background:#fff;font-family:Georgia,'Times New Roman',serif;font-size:12pt;line-height:1.6}
+  #printroot h1,#printroot h2{color:#000;font-family:Georgia,serif}
+  #printroot hr{border:0;border-top:1px solid #444;margin:1.6em 0}
+  #printroot .nota{border-top:1px solid #999;border-bottom:1px solid #999;padding:.5em 0;margin:1.2em 0;font-size:11pt}
+  #printroot .pchap{break-before:page}
+}
