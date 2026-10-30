@@ -13,10 +13,11 @@ const statName=c=>(STAT.find(r=>r[0]===c)||STAT[0])[1];
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const S={user:null,name:'',authReady:false,works:[],f:{q:'',rating:'',status:'',tag:'',hide:[],sort:'recent'},
-  form:null,confirm:null,ack:{},cur:null,tok:0,saving:false,authMode:'in',authMsg:'',next:null,r:null};
+  form:null,confirm:null,ack:{},cur:null,tok:0,saving:false,authMode:'in',authMsg:'',next:null,r:null,lib:new Set(),notify:true,viewed:{}};
 
 /* ---------- utilidades ---------- */
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const cnt=x=>(x&&x[0]&&x[0].count)||0;
 const num=n=>(n||0).toLocaleString('pt-BR');
 const dt=t=>t?new Date(t).toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'}):'';
 const dtt=t=>t?new Date(t).toLocaleString('pt-BR',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'';
@@ -52,6 +53,7 @@ function route(){
   switch(p[0]){
     case '':case 'obras':return{v:'home'};
     case 'minhas':return{v:'home',mine:true};
+    case 'biblioteca':return{v:'home',lib:true};
     case 'escrever':return{v:'new'};
     case 'entrar':return{v:'auth'};
     case 'nova-senha':return{v:'reset'};
@@ -65,18 +67,18 @@ function route(){
 
 /* ---------- dados ---------- */
 async function loadWorks(){
-  const d=await q(sb.from('works').select('*,profiles(name),chapters(words,likes(count))').order('updated_at',{ascending:false}));
+  const d=await q(sb.from('works').select('*,profiles(name),chapters(words,likes(count),comments(count)),work_views(count)').order('updated_at',{ascending:false}));
   return d.map(w=>Object.assign({},w,{
     author:(w.profiles&&w.profiles.name)||'Autor(a)',nch:w.chapters.length,
     words:w.chapters.reduce((a,c)=>a+(c.words||0),0),
-    likes:w.chapters.reduce((a,c)=>a+((c.likes&&c.likes[0]&&c.likes[0].count)||0),0)}));
+    likes:w.chapters.reduce((a,c)=>a+cnt(c.likes),0),comments:w.chapters.reduce((a,c)=>a+cnt(c.comments),0),views:cnt(w.work_views)}));
 }
 async function loadWork(id){
   if(!UUID.test(id||''))return null;
-  const w=await q(sb.from('works').select('*,profiles(name)').eq('id',id).maybeSingle());
+  const w=await q(sb.from('works').select('*,profiles(name),work_views(count)').eq('id',id).maybeSingle());
   if(!w)return null;
-  w.author=(w.profiles&&w.profiles.name)||'Autor(a)';
-  w.chs=await q(sb.from('chapters').select('id,position,title,words,created_at,likes(count)').eq('work_id',id).order('position'));
+  w.author=(w.profiles&&w.profiles.name)||'Autor(a)';w.views=cnt(w.work_views);
+  w.chs=await q(sb.from('chapters').select('id,position,title,words,created_at,likes(count),comments(count)').eq('work_id',id).order('position'));
   return w;
 }
 const isMine=w=>!!(S.user&&w&&w.author_id===S.user.id);
@@ -92,14 +94,25 @@ function warnPills(w){
   return '<ul class="pills">'+out.join('')+'</ul>';
 }
 const tagList=w=>'<ul class="tags">'+(w.tags||[]).map(t=>'<li><button class="tag" data-action="tag" data-tag="'+esc(t)+'">'+esc(t)+'</button></li>').join('')+'</ul>';
+const IC={
+  like:'<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 21l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.18L12 21z"/></svg>',
+  comment:'<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12z"/></svg>',
+  view:'<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>'};
+function statsIcons(l,c,v,long){
+  const t=(n,one,many)=>long?' '+(n===1?one:many):'';
+  return '<span class="ic" title="Curtidas">'+IC.like+num(l)+t(l,'curtida','curtidas')+'</span><span class="ic" title="Comentários">'+IC.comment+num(c)+t(c,'comentário','comentários')+'</span><span class="ic" title="Pessoas que abriram">'+IC.view+num(v)+t(v,'visualização','visualizações')+'</span>';
+}
+const saveBtn=(id,small)=>'<button class="btn'+(small?' sm':'')+'" data-action="save" data-id="'+id+'">'+(S.lib.has(id)?'★ '+(small?'Salva':'Na biblioteca'):'☆ '+(small?'Salvar':'Salvar na biblioteca'))+'</button>';
+const curTheme=()=>document.documentElement.dataset.theme||(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
+const themeBtn=()=>'<button class="btn sm" data-action="theme" aria-label="Alternar entre tema claro e escuro">'+(curTheme()==='dark'?'☀ Claro':'☾ Escuro')+'</button>';
 const loading=()=>'<p class="muted">Carregando…</p>';
 const notFound=()=>'<div class="empty"><h2>Não encontramos isso</h2><p class="muted">A obra pode ter sido removida.</p><a class="btn" href="#/obras">Voltar para a estante</a></div>';
 const needLogin=msg=>{S.next=location.hash;return '<div class="empty"><h2>'+esc(msg)+'</h2><p class="muted">Entre com seu e-mail e senha para continuar.</p><a class="btn pri" href="#/entrar">Entrar ou criar conta</a></div>'};
 function shell(inner,r){
-  const on=k=>(k==='obras'&&r.v==='home'&&!r.mine)||(k==='minhas'&&r.mine)||(k==='escrever'&&r.v==='new')?' class="on"':'';
-  const who=S.user?'<span class="who"><span>Olá, <strong>'+esc(S.name||S.user.email)+'</strong></span><button class="btn sm" data-action="logout">Sair</button></span>':'<span class="who"><a class="btn sm pri" href="#/entrar">Entrar</a></span>';
+  const on=k=>(k==='obras'&&r.v==='home'&&!r.mine&&!r.lib)||(k==='minhas'&&r.mine)||(k==='biblioteca'&&r.lib)||(k==='escrever'&&r.v==='new')?' class="on"':'';
+  const who=S.user?'<span class="who"><span>Olá, <strong>'+esc(S.name||S.user.email)+'</strong></span>'+themeBtn()+'<button class="btn sm" data-action="logout">Sair</button></span>':'<span class="who">'+themeBtn()+'<a class="btn sm pri" href="#/entrar">Entrar</a></span>';
   return '<header class="top"><a class="brand" href="#/obras"><svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><rect x="3" y="7" width="6" height="19" rx="1" fill="var(--accent)"/><rect x="11" y="3" width="6" height="23" rx="1" fill="var(--ink)"/><rect x="19" y="9" width="6" height="17" rx="1" fill="var(--accent)" opacity=".55"/><rect x="1" y="26" width="28" height="2" fill="var(--ink)"/></svg><span>Estante</span></a>'+
-   '<nav><a href="#/obras"'+on('obras')+'>Todas as obras</a>'+(S.user?'<a href="#/minhas"'+on('minhas')+'>Minhas obras</a><a href="#/escrever"'+on('escrever')+'>Nova obra</a>':'')+'</nav>'+who+'</header><main class="wrap">'+inner+'</main>';
+   '<nav><a href="#/obras"'+on('obras')+'>Todas as obras</a>'+(S.user?'<a href="#/minhas"'+on('minhas')+'>Minhas obras</a><a href="#/biblioteca"'+on('biblioteca')+'>Biblioteca</a><a href="#/escrever"'+on('escrever')+'>Nova obra</a>':'')+'</nav>'+who+'</header><main class="wrap">'+inner+'</main>';
 }
 function setupHtml(){
   return '<div class="card paper stack"><h1>Falta configurar</h1><p>Abra o arquivo <code>config.js</code> e cole a URL e a chave anon do seu projeto Supabase. O passo a passo está no <code>README.md</code>.</p>'+(window.supabase?'':'<p class="err">A biblioteca do Supabase não carregou. Verifique a conexão.</p>')+'</div>';
@@ -110,6 +123,7 @@ function filtered(r){
   const f=S.f,k=f.q.trim().toLowerCase();
   const a=S.works.filter(w=>{
     if(r.mine&&!isMine(w))return false;
+    if(r.lib&&!S.lib.has(w.id))return false;
     if(f.rating&&w.rating!==f.rating)return false;
     if(f.status&&w.status!==f.status)return false;
     if(f.tag&&!(w.tags||[]).some(t=>t.toLowerCase()===f.tag.toLowerCase()))return false;
@@ -126,16 +140,18 @@ function blurb(w){
   '<h3><a href="#/obra/'+w.id+'">'+esc(w.title)+'</a> <span class="by">por '+esc(w.author)+'</span></h3>'+
   (w.fandom?'<p class="fandom">'+esc(w.fandom)+'</p>':'')+warnPills(w)+tagList(w)+
   (w.summary?'<p class="summary">'+esc(w.summary)+'</p>':'')+
-  '<p class="stats"><span>Capítulos: '+num(w.nch)+'</span><span>Palavras: '+num(w.words)+'</span><span>♥ '+num(w.likes)+'</span><span>Atualizada em '+esc(dt(w.updated_at))+'</span></p></div></article>';
+  '<p class="stats"><span>Capítulos: '+num(w.nch)+'</span><span>Palavras: '+num(w.words)+'</span>'+statsIcons(w.likes,w.comments,w.views)+'<span>Atualizada em '+esc(dt(w.updated_at))+'</span></p><div style="margin-top:10px">'+saveBtn(w.id,true)+'</div></div></article>';
 }
 function listHtml(r){
   const a=filtered(r);
   if(!S.works.length)return '<div class="empty"><h2>A estante está vazia</h2><p class="muted">Nenhuma obra foi publicada ainda.</p>'+(S.user?'<a class="btn pri" href="#/escrever">Publicar uma obra</a>':'<a class="btn pri" href="#/entrar">Entrar para publicar</a>')+'</div>';
+  if(r.lib&&!S.lib.size)return '<div class="empty"><h2>Sua biblioteca está vazia</h2><p class="muted">Use o botão Salvar nas obras para guardá-las aqui.</p><a class="btn" href="#/obras">Ver todas as obras</a></div>';
   if(!a.length)return '<div class="empty"><h2>Nada com esses filtros</h2><p class="muted">Tente tirar alguns filtros.</p><button class="btn" data-action="clear">Limpar filtros</button></div>';
   return a.map(blurb).join('');
 }
 async function homeView(r){
   if(r.mine&&!S.user)return needLogin('Entre para ver suas obras');
+  if(r.lib&&!S.user)return needLogin('Entre para ver sua biblioteca');
   S.works=await loadWorks();
   const f=S.f,tags=allTags().slice(0,24);
   const sel=(o,cur,any)=>'<option value="">'+any+'</option>'+o.map(x=>'<option value="'+x[0]+'"'+(cur===x[0]?' selected':'')+'>'+esc(x[1])+'</option>').join('');
@@ -147,14 +163,15 @@ async function homeView(r){
    '<label>Ordenar por<select data-filter="sort">'+so('recent','Atualizadas há pouco')+so('title','Título')+so('words','Mais palavras')+so('likes','Mais curtidas')+'</select></label>'+
    '<div><h2 style="margin-bottom:8px">Ocultar obras com</h2><div class="checks">'+['violence','death','sexviolence','minors'].map(k=>'<label><input type="checkbox" data-hide="'+k+'"'+(f.hide.includes(k)?' checked':'')+'>'+esc(WARN[k])+'</label>').join('')+'</div></div>'+
    (tags.length?'<div><h2 style="margin-bottom:8px">Tags mais usadas</h2><div class="cloud">'+tags.map(t=>'<button class="tag'+(f.tag.toLowerCase()===t.t.toLowerCase()?' on':'')+'" data-action="tag" data-tag="'+esc(t.t)+'">'+esc(t.t)+' · '+t.n+'</button>').join('')+'</div></div>':'')+
+   (r.mine&&S.user?'<label class="notify"><input type="checkbox" data-notify'+(S.notify?' checked':'')+'> Receber e-mail quando alguém curtir ou comentar nas minhas obras</label>':'')+
    '<button class="btn" data-action="clear">Limpar filtros</button></aside>'+
-   '<section><div class="head"><h1>'+(r.mine?'Minhas obras':'Todas as obras')+'</h1><span class="muted" id="count"></span></div><div id="list"></div></section></div>';
+   '<section><div class="head"><h1>'+(r.mine?'Minhas obras':r.lib?'Minha biblioteca':'Todas as obras')+'</h1><span class="muted" id="count"></span></div><div id="list"></div></section></div>';
 }
 function paintList(){
   const r=S.r,l=document.getElementById('list');if(!l)return;
   l.innerHTML=listHtml(r);
   const c=document.getElementById('count');
-  if(c)c.textContent=num(filtered(r).length)+' de '+num(S.works.filter(w=>!r.mine||isMine(w)).length)+' obras';
+  if(c)c.textContent=num(filtered(r).length)+' de '+num(S.works.filter(w=>(!r.mine||isMine(w))&&(!r.lib||S.lib.has(w.id))).length)+' obras';
 }
 
 /* ---------- obra e capítulo ---------- */
@@ -164,16 +181,16 @@ async function workView(r){
   const w=await loadWork(r.id);if(!w)return notFound();
   S.cur={w};
   const mine=isMine(w),key='w:'+w.id,chs=w.chs;
-  const words=chs.reduce((a,c)=>a+(c.words||0),0),likes=chs.reduce((a,c)=>a+likesOf(c),0);
+  const words=chs.reduce((a,c)=>a+(c.words||0),0),likes=chs.reduce((a,c)=>a+likesOf(c),0),comments=chs.reduce((a,c)=>a+cnt(c.comments),0);
   const list=!chs.length?'<p class="muted">Ainda não há capítulos.'+(mine?' Adicione o primeiro.':'')+'</p>':
-   '<ol class="chlist">'+chs.map((c,i)=>'<li><span><a class="ti" href="#/obra/'+w.id+'/'+(i+1)+'">'+(i+1)+'. '+esc(c.title||'Capítulo '+(i+1))+'</a> <span class="muted">· '+num(c.words)+' palavras · ♥ '+num(likesOf(c))+' · '+esc(dt(c.created_at))+'</span></span>'+
+   '<ol class="chlist">'+chs.map((c,i)=>'<li><span><a class="ti" href="#/obra/'+w.id+'/'+(i+1)+'">'+(i+1)+'. '+esc(c.title||'Capítulo '+(i+1))+'</a> <span class="muted">· '+num(c.words)+' palavras · ♥ '+num(likesOf(c))+' · '+num(cnt(c.comments))+(cnt(c.comments)===1?' comentário · ':' comentários · ')+esc(dt(c.created_at))+'</span></span>'+
    (mine?'<span class="row"><button class="btn sm" data-action="move" data-i="'+i+'" data-dir="-1" '+(i===0?'disabled':'')+' aria-label="Subir">↑</button><button class="btn sm" data-action="move" data-i="'+i+'" data-dir="1" '+(i===chs.length-1?'disabled':'')+' aria-label="Descer">↓</button><a class="btn sm" href="#/editcap/'+w.id+'/'+(i+1)+'">Editar</a><button class="btn sm dng" data-action="delchap" data-id="'+c.id+'">'+(S.confirm==='c:'+c.id?'Confirmar exclusão':'Excluir')+'</button></span>':'')+'</li>').join('')+'</ol>';
   return '<div class="stack"><div class="paper"><p class="muted" style="margin:0 0 8px"><a href="#/obras">← Todas as obras</a></p><h1>'+esc(w.title)+'</h1><p style="margin:4px 0 0">por <strong>'+esc(w.author)+'</strong></p>'+
    '<dl class="meta"><dt>Classificação</dt><dd>'+ratingChip(w.rating)+' '+esc(rateName(w.rating))+'</dd><dt>Avisos</dt><dd>'+warnPills(w)+'</dd>'+
    (w.fandom?'<dt>Universo</dt><dd>'+esc(w.fandom)+'</dd>':'')+
    ((w.tags||[]).length?'<dt>Tags</dt><dd>'+tagList(w)+'</dd>':'')+
-   '<dt>Situação</dt><dd>'+esc(statName(w.status))+'</dd><dt>Publicada</dt><dd>'+esc(dt(w.created_at))+'</dd><dt>Atualizada</dt><dd>'+esc(dt(w.updated_at))+'</dd><dt>Tamanho</dt><dd>'+num(chs.length)+(chs.length===1?' capítulo':' capítulos')+' · '+num(words)+' palavras · ♥ '+num(likes)+'</dd></dl>'+
-   '<div class="row">'+(chs.length?'<a class="btn pri" href="#/obra/'+w.id+'/1">Começar a ler</a>':'')+(mine?'<a class="btn" href="#/novocap/'+w.id+'">Adicionar capítulos</a><a class="btn" href="#/editar/'+w.id+'">Editar obra</a>':'')+(mine?'<button class="btn dng" data-action="delwork" data-id="'+w.id+'">'+(S.confirm===key?'Confirmar exclusão da obra':'Excluir obra')+'</button>':'')+'</div></div>'+
+   '<dt>Situação</dt><dd>'+esc(statName(w.status))+'</dd><dt>Publicada</dt><dd>'+esc(dt(w.created_at))+'</dd><dt>Atualizada</dt><dd>'+esc(dt(w.updated_at))+'</dd><dt>Tamanho</dt><dd>'+num(chs.length)+(chs.length===1?' capítulo':' capítulos')+' · '+num(words)+' palavras</dd><dt>Interações</dt><dd class="row">'+statsIcons(likes,comments,w.views,true)+'</dd></dl>'+
+   '<div class="row">'+(chs.length?'<a class="btn pri" href="#/obra/'+w.id+'/1">Começar a ler</a>':'')+saveBtn(w.id)+(mine?'<a class="btn" href="#/novocap/'+w.id+'">Adicionar capítulos</a><a class="btn" href="#/editar/'+w.id+'">Editar obra</a>':'')+(mine?'<button class="btn dng" data-action="delwork" data-id="'+w.id+'">'+(S.confirm===key?'Confirmar exclusão da obra':'Excluir obra')+'</button>':'')+'</div></div>'+
    (w.summary?'<div class="paper"><h2 style="font-size:17px;margin-bottom:8px">Resumo</h2><div class="prose small">'+fmtText(w.summary)+'</div></div>':'')+
    (w.notes?'<div class="paper"><h2 style="font-size:17px;margin-bottom:8px">Notas da autoria</h2><div class="prose small">'+fmtText(w.notes)+'</div></div>':'')+
    '<div class="paper"><h2 style="font-size:17px;margin-bottom:10px">Capítulos</h2>'+list+'</div></div>';
@@ -206,12 +223,13 @@ async function chapterView(r){
   S.cur={w,c,n:r.n,nlikes:lk.length,liked:!!(S.user&&lk.some(l=>l.user_id===S.user.id)),cms};
   const chs=w.chs;
   const nav='<nav class="chnav"><span>'+(r.n>1?'<a class="btn" href="#/obra/'+w.id+'/'+(r.n-1)+'">← Anterior</a>':'')+'</span><span class="row"><a class="btn" href="#/obra/'+w.id+'">Sobre a obra</a><select data-jump="'+w.id+'" aria-label="Ir para capítulo">'+chs.map((x,i)=>'<option value="'+(i+1)+'"'+(i+1===r.n?' selected':'')+'>'+(i+1)+'. '+esc(x.title||'Capítulo '+(i+1))+'</option>').join('')+'</select></span><span>'+(r.n<chs.length?'<a class="btn" href="#/obra/'+w.id+'/'+(r.n+1)+'">Próximo →</a>':'')+'</span></nav>';
-  return '<div class="reader"><div class="row" style="justify-content:space-between"><span class="muted">'+esc(w.title)+' · por '+esc(w.author)+'</span><span class="row"><button class="btn sm" data-action="fs" data-d="-1" aria-label="Diminuir letra">A−</button><button class="btn sm" data-action="fs" data-d="1" aria-label="Aumentar letra">A+</button></span></div>'+nav+
-   '<h1>'+r.n+'. '+esc(c.title||'Capítulo '+r.n)+'</h1>'+
-   (c.notes_start?'<div class="note"><strong>Notas</strong><div class="prose small">'+fmtText(c.notes_start)+'</div></div>':'')+
+  recordView(w);
+  return '<div class="reader"><div class="row" style="justify-content:space-between"><span class="muted">'+esc(w.title)+' · por '+esc(w.author)+'</span><span class="row">'+saveBtn(w.id,true)+'<button class="btn sm" data-action="fs" data-d="-1" aria-label="Diminuir letra">A−</button><button class="btn sm" data-action="fs" data-d="1" aria-label="Aumentar letra">A+</button></span></div>'+nav+
+   '<h1>'+r.n+'. '+esc(c.title||'Capítulo '+r.n)+'</h1><hr class="sep">'+
+   (c.notes_start?'<div class="note"><strong>Notas</strong><div class="prose small">'+fmtText(c.notes_start)+'</div></div><hr class="sep">':'')+
    '<div class="prose">'+renderBody(c.body,c.format)+'</div>'+
-   (c.notes_end?'<div class="note"><strong>Notas finais</strong><div class="prose small">'+fmtText(c.notes_end)+'</div></div>':'')+
-   '<div class="likebar" id="likebar">'+likeHtml()+'</div>'+nav+
+   (c.notes_end?'<hr class="sep wide"><div class="note"><strong>Notas finais</strong><div class="prose small">'+fmtText(c.notes_end)+'</div></div>':'')+
+   '<hr class="sep wide"><div class="likebar" id="likebar">'+likeHtml()+'</div>'+nav+
    '<section class="paper comments" id="cm">'+commentsHtml()+'</section></div>';
 }
 
@@ -303,7 +321,7 @@ async function saveWork(){
   S.saving=false;
 }
 
-const FMT_HINT={text:'Linha em branco separa parágrafos. *itálico*, **negrito** e *** em linha própria (quebra de cena).',html:'HTML aceito: <p>, <em>, <strong>, <h2>, <blockquote>, <hr>, <a>… Scripts e estilos são removidos.'};
+const FMT_HINT={text:'Linha em branco separa parágrafos. *itálico*, **negrito** e *** sozinho numa linha vira uma linha de separação.',html:'HTML aceito: <p>, <em>, <strong>, <h2>, <blockquote>, <hr>, <a>… Scripts e estilos são removidos.'};
 function chFormInner(){
   const f=S.form,b=f.batch;
   const up='<div class="drop"><strong style="font-size:14px">Subir arquivos de capítulo</strong><span class="hint muted" style="font-size:13px">Aceita .txt, .md, .html e .docx. Com um arquivo, o texto vai para o editor. Com vários, cada arquivo vira um capítulo, na ordem dos nomes.</span><input type="file" id="f-file" accept=".txt,.md,.html,.htm,.docx" '+(S.r.v==='editchap'?'':'multiple')+'><span class="err" id="f-ferr" role="alert"></span></div>';
@@ -437,6 +455,25 @@ async function sendComment(){
   catch(e){err.textContent='Não foi possível enviar: '+((e&&e.message)||'erro');btn.disabled=false}
 }
 
+function vid(){let v=S.user?S.user.id:lsGet('vid','');if(!v){v=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():String(Math.random()).slice(2)+Date.now();lsSet('vid',v)}return v}
+function recordView(w){
+  if(isMine(w)||S.viewed[w.id])return;S.viewed[w.id]=1;
+  sb.from('work_views').upsert({work_id:w.id,viewer:vid()},{onConflict:'work_id,viewer',ignoreDuplicates:true}).then(()=>{},()=>{});
+}
+function refreshSave(id){
+  if(S.r.lib){paintList();return}
+  document.querySelectorAll('[data-action="save"][data-id="'+id+'"]').forEach(b=>{b.outerHTML=saveBtn(id,b.classList.contains('sm'))});
+}
+async function toggleSave(id){
+  if(!S.user){S.next=location.hash;go('entrar');return}
+  const had=S.lib.has(id);
+  if(had)S.lib.delete(id);else S.lib.add(id);
+  refreshSave(id);
+  try{
+    if(had)await q(sb.from('library').delete().eq('work_id',id).eq('user_id',S.user.id));
+    else await q(sb.from('library').insert({work_id:id,user_id:S.user.id}));
+  }catch(e){if(had)S.lib.add(id);else S.lib.delete(id);refreshSave(id)}
+}
 document.addEventListener('click',e=>{
   const t=e.target.closest('[data-action]');if(!t)return;
   const a=t.dataset.action;
@@ -454,6 +491,8 @@ document.addEventListener('click',e=>{
   else if(a==='preview'){const p=document.getElementById('preview');p.hidden=!p.hidden;if(!p.hidden)p.innerHTML=renderBody(S.form.body,S.form.format)||'<p class="muted">Nada para mostrar ainda.</p>'}
   else if(a==='cancelbatch'){S.form.batch=null;paintChForm()}
   else if(a==='like')toggleLike();
+  else if(a==='save')toggleSave(t.dataset.id);
+  else if(a==='theme'){const n=curTheme()==='dark'?'light':'dark';document.documentElement.dataset.theme=n;lsSet('theme',n);t.textContent=n==='dark'?'☀ Claro':'☾ Escuro'}
   else if(a==='logout'){sb.auth.signOut()}
   else if(a==='authmode'){S.authMode=t.dataset.m;S.authMsg='';$app.innerHTML=shell(authHtml(),S.r)}
 });
@@ -474,6 +513,7 @@ document.addEventListener('change',e=>{
     if(t.checked)w=(k==='none'||k==='skip')?[k]:w.filter(x=>x!=='none'&&x!=='skip').concat(k);
     S.form.warnings=w;paintWarns();
   }
+  else if(t.dataset.notify!==undefined){S.notify=t.checked;sb.from('profiles').update({notify:t.checked}).eq('id',S.user.id).then(()=>{},()=>{})}
   else if(t.dataset.jump)go('obra/'+t.dataset.jump+'/'+t.value);
   else if(t.dataset.chip&&t.value.trim()){addChip(t.dataset.chip,t.value);t.value=''}
   else if(t.id==='f-file'&&t.files&&t.files.length)handleFiles(t.files);
@@ -509,8 +549,11 @@ else{
     if(ev==='PASSWORD_RECOVERY')location.hash=H('nova-senha');
     if(ev!=='INITIAL_SESSION'&&ev!=='PASSWORD_RECOVERY'&&prev===cur)return;
     setTimeout(async()=>{
-      S.name='';
-      if(S.user){try{const p=await q(sb.from('profiles').select('name').eq('id',S.user.id).maybeSingle());S.name=(p&&p.name)||''}catch(e){}}
+      S.name='';S.lib=new Set();S.notify=true;
+      if(S.user){
+        try{const p=await q(sb.from('profiles').select('name,notify').eq('id',S.user.id).maybeSingle());S.name=(p&&p.name)||'';S.notify=!p||p.notify!==false}catch(e){}
+        try{const l=await q(sb.from('library').select('work_id'));S.lib=new Set(l.map(x=>x.work_id))}catch(e){}
+      }
       render(true);
     },0);
   });
