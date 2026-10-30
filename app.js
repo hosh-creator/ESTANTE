@@ -67,7 +67,7 @@ function route(){
 
 /* ---------- dados ---------- */
 async function loadWorks(){
-  const d=await q(sb.from('works').select('*,profiles(name),chapters(words,likes(count),comments(count)),work_views(count)').order('updated_at',{ascending:false}));
+  const d=await q(sb.from('works').select('*,profiles!author_id(name),chapters(words,likes(count),comments(count)),work_views(count)').order('updated_at',{ascending:false}));
   return d.map(w=>Object.assign({},w,{
     author:(w.profiles&&w.profiles.name)||'Autor(a)',nch:w.chapters.length,
     words:w.chapters.reduce((a,c)=>a+(c.words||0),0),
@@ -75,7 +75,7 @@ async function loadWorks(){
 }
 async function loadWork(id){
   if(!UUID.test(id||''))return null;
-  const w=await q(sb.from('works').select('*,profiles(name),work_views(count)').eq('id',id).maybeSingle());
+  const w=await q(sb.from('works').select('*,profiles!author_id(name),work_views(count)').eq('id',id).maybeSingle());
   if(!w)return null;
   w.author=(w.profiles&&w.profiles.name)||'Autor(a)';w.views=cnt(w.work_views);
   w.chs=await q(sb.from('chapters').select('id,position,title,words,created_at,likes(count),comments(count)').eq('work_id',id).order('position'));
